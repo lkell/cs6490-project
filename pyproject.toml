@@ -2,7 +2,7 @@
 name = "ccn-sim"
 version = "0.1.0"
 description = ""
-authors = ["Leo Kell <leo.kell@biofiredx.com>"]
+authors = ["Leo Kell", "Jack Wilburn"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
