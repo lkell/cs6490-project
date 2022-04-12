@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import typing
+from collections import OrderedDict
 from typing import Dict, Protocol, Union
 
 import simpy
@@ -14,6 +16,18 @@ class Packet:
         self.route = []
         self.response_data: Union[None, int] = None
         self.responder: Union[None, str] = None
+        self.inverse_TTL = 0
+
+    def increment_hops(self):
+        self.inverse_TTL += 1
+
+    def add_node_to_route(self, id: str):
+        self.route.append(id)
+        self.increment_hops()
+
+    def remove_node_from_route(self) -> str:
+        self.increment_hops()
+        return self.route.pop()
 
 
 class NetworkNode(Protocol):
@@ -39,13 +53,14 @@ class Server(NetworkNode):
 
             # return the packet
             self.return_content(request)
+
         else:
             # Otherwise we don't have it, do nothing.
             pass
 
     def return_content(self, response: Packet):
         # Remove the immediate router from the route
-        response.route.pop()
+        response.remove_node_from_route()
 
         # Give the reponse back to the router
         self.router.return_content(response)
@@ -65,7 +80,7 @@ class Client(NetworkNode):
 
     def fetch_content(self, request: Packet):
         # Add self to path and send to nearest router
-        request.route.append(self.id)
+        request.add_node_to_route(self.id)
         self.router.fetch_content(request)
 
     def return_content(self, response: Packet):
@@ -73,22 +88,46 @@ class Client(NetworkNode):
         self.retrieved_content = response
 
 
+class ContentCache:
+    def __init__(self, limit: int = 20):
+        self.limit = limit
+        self.cache: typing.OrderedDict[str, int] = OrderedDict()
+
+    def add(self, key: str, val: int):
+        if len(self.cache.keys()) >= self.limit:
+            self.evict()
+        self.cache[key] = val
+
+    def lookup(self, key: str) -> Union[int, None]:
+        if key not in self.cache.keys():
+            return None
+        return self.cache[key]
+
+    def evict(self) -> None:
+        self.cache.popitem(last=False)
+
+    def flush(self):
+        self.cache = OrderedDict()
+
+
 class Router(NetworkNode):
     def __init__(self, id: str):
         self.id = id
         self.neighbors: Union[None, Dict[str, NetworkNode]] = None
-        self.cache = Dict[str, int]
+        self.cache = ContentCache()
 
     def add_neighbors(self, neighbors: Dict[str, NetworkNode]):
         self.neighbors = neighbors
 
     def fetch_content(self, request: Packet):
-        # Add self as a hop on the path
-        request.route.append(self.id)
+        # if the data is in the cache, call return_content directly
+        cache_result = self.cache.lookup(request.search)
+        if cache_result is not None:
+            request.response_data = cache_result
+            return self.return_content(request)
 
-        # Check the cache
-        # TODO
-        # if it's in the cache, call return_content directly
+        # Add self as a hop on the path if we don't have the data
+        request.add_node_to_route(self.id)
 
         # Check we have neighbors
         if self.neighbors is None:
@@ -101,7 +140,12 @@ class Router(NetworkNode):
 
     def return_content(self, response: Packet):
         # Find the next router closest to the requestor
-        next_router = response.route.pop()
+        next_router = response.remove_node_from_route()
+
+        # Add data to cache
+        if response.response_data is None:
+            raise Exception("Response data is None")
+        self.cache.add(response.search, response.response_data)
 
         # Check we have neighbors
         if self.neighbors is None:
