@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import typing
 from collections import OrderedDict
-from typing import Dict, Protocol, Union
+from typing import Dict, Protocol, Set, Union
 
 import simpy
 
@@ -13,7 +13,6 @@ sys.setrecursionlimit(1000)
 class Packet:
     def __init__(self, search: str):
         self.search = search
-        self.route = []
         self.response_data: Union[None, int] = None
         self.responder: Union[None, str] = None
         self.inverse_TTL = 0
@@ -21,49 +20,15 @@ class Packet:
     def increment_hops(self):
         self.inverse_TTL += 1
 
-    def add_node_to_route(self, id: str):
-        self.route.append(id)
-        self.increment_hops()
-
-    def remove_node_from_route(self) -> str:
-        self.increment_hops()
-        return self.route.pop()
-
 
 class NetworkNode(Protocol):
     """A networked object that can fetch and return data."""
 
-    def fetch_content(self, request: Packet) -> None:
+    def fetch_content(self, request: Packet, sender_id: str) -> None:
         """Search for the data corresponding with the request packet."""
 
     def return_content(self, response: Packet) -> None:
         """Return the data reponse to the requesting node."""
-
-
-class Server(NetworkNode):
-    def __init__(self, id: str, router: Router, data: Dict[str, int]):
-        self.id = id
-        self.router = router
-        self.data = data
-
-    def fetch_content(self, request: Packet):
-        if request.search in self.data.keys():
-            # insert the data to packet
-            request.response_data = self.data[request.search]
-
-            # return the packet
-            self.return_content(request)
-
-        else:
-            # Otherwise we don't have it, do nothing.
-            pass
-
-    def return_content(self, response: Packet):
-        # Remove the immediate router from the route
-        response.remove_node_from_route()
-
-        # Give the reponse back to the router
-        self.router.return_content(response)
 
 
 class Client(NetworkNode):
@@ -79,12 +44,9 @@ class Client(NetworkNode):
         self.fetch_content(request)
 
     def fetch_content(self, request: Packet):
-        # Add self to path and send to nearest router
-        request.add_node_to_route(self.id)
-        self.router.fetch_content(request)
+        self.router.fetch_content(request, sender_id=self.id)
 
     def return_content(self, response: Packet):
-        print(f"client {self.id}: got response for {response.search}")
         self.retrieved_content = response
 
 
@@ -94,14 +56,21 @@ class ContentCache:
         self.cache: typing.OrderedDict[str, int] = OrderedDict()
 
     def add(self, key: str, val: int):
+        if key in self.cache.keys():
+            # Pop to move key to the front of the ordered dict if it exists
+            self.cache.pop(key)
+
         if len(self.cache.keys()) >= self.limit:
             self.evict()
+
         self.cache[key] = val
 
     def lookup(self, key: str) -> Union[int, None]:
         if key not in self.cache.keys():
             return None
-        return self.cache[key]
+        data = self.cache[key]
+        self.add(key, data)
+        return data
 
     def evict(self) -> None:
         self.cache.popitem(last=False)
@@ -111,23 +80,37 @@ class ContentCache:
 
 
 class Router(NetworkNode):
-    def __init__(self, id: str):
+    def __init__(self, id: str, data: Dict[str, int] = {}):
         self.id = id
         self.neighbors: Union[None, Dict[str, NetworkNode]] = None
         self.cache = ContentCache()
+        self.pit: Dict[str, Set[str]] = {}
+        self.data: Dict[str, int] = data
 
     def add_neighbors(self, neighbors: Dict[str, NetworkNode]):
         self.neighbors = neighbors
 
-    def fetch_content(self, request: Packet):
+    def fetch_content(self, request: Packet, sender_id: str):
+        print(f"{self.id} is incrementing hops")
+        request.increment_hops()
+
+        # add the request packet and sender_id to PIT
+        if request.search not in self.pit:
+            self.pit[request.search] = {sender_id}
+        else:
+            self.pit[request.search].add(sender_id)
+            # TODO: wait for response...
+
         # if the data is in the cache, call return_content directly
         cache_result = self.cache.lookup(request.search)
         if cache_result is not None:
             request.response_data = cache_result
             return self.return_content(request)
 
-        # Add self as a hop on the path if we don't have the data
-        request.add_node_to_route(self.id)
+        # if the node owns the data, return it
+        if request.search in self.data.keys():
+            request.response_data = self.data[request.search]
+            return self.return_content(request)
 
         # Check we have neighbors
         if self.neighbors is None:
@@ -135,21 +118,28 @@ class Router(NetworkNode):
 
         # Else see if our neighbors have it
         for neighbor_id, neighbor in self.neighbors.items():
-            if neighbor_id not in request.route:
-                neighbor.fetch_content(request)
+            if neighbor_id != sender_id:
+                neighbor.fetch_content(request, self.id)
 
     def return_content(self, response: Packet):
-        # Find the next router closest to the requestor
-        next_router = response.remove_node_from_route()
+        print(f"{self.id} is incrementing hops")
+        print(self.neighbors)
+        response.increment_hops()
 
         # Add data to cache
         if response.response_data is None:
             raise Exception("Response data is None")
         self.cache.add(response.search, response.response_data)
 
+        # Find everyone that wants this info
+        next_routers = self.pit[response.search]
+
         # Check we have neighbors
         if self.neighbors is None:
             raise Exception("Router didn't have neighbors")
 
-        # Send to the next one in the chain
-        self.neighbors[next_router].return_content(response)
+        print("next routers", next_routers)
+        for router in next_routers:
+            self.neighbors[router].return_content(response)
+
+        self.pit.pop(response.search)
