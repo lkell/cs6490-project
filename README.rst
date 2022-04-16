@@ -8,7 +8,7 @@ Things to work on:
     - [] Implement FIB (potentially set up beforehand and sweep under the rug)
 
 
-- [] Create asynchronous environment with simpy
+- [X] Create asynchronous environment with simpy
 - [] Reduce the neighbor dict complexity
 - [] Create some simple network topologies
 - [] Figure out how to DDOS our networks
