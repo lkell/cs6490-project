@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import csv
+import os
 import sys
 import typing
 from collections import OrderedDict
-from typing import Dict, Final, Literal, Protocol, Set, Union
+from typing import Dict, Final, Literal, Protocol, Set, Tuple, Union
 
 from simpy.core import Environment
 
@@ -137,12 +139,14 @@ class Router(NetworkNode):
         self.data: Dict[str, int] = data
         self.env = env
         self.queue: list[Packet] = []
+        self.queue_hist: list[Tuple[int, int]] = []
 
     def log(self, msg: str) -> None:
         print(f"[{self.id}]: {msg}")
 
     def run(self):
         while True:
+            self.queue_hist.append((int(self.env.now), len(self.queue)))
             if len(self.queue) == 0:
                 yield self.env.timeout(1)
             else:
@@ -230,6 +234,16 @@ class Router(NetworkNode):
     def update_queue(self, packet: Packet) -> None:
         self.queue.append(packet)
 
+    def write_queue_hist(self, sim_path: str) -> None:
+        path = f"output/{sim_path}"
+        if not os.path.exists(path):
+            os.mkdir(path)
+        filepath = f"{path}/{self.id}.csv"
+        with open(filepath, "w") as f:
+            writer = csv.writer(f)
+            for row in self.queue_hist:
+                writer.writerow(row)
+
 
 def build_simple_network(env: Environment, n_routers: int = 100):
     if n_routers < 2:
@@ -288,3 +302,5 @@ env.run(until=100)
 # is able to consolidate the return packets using its PIT
 print("Cleint received responses:", client.responses)
 assert len(client.responses) == 1
+for router in routers:
+    router.write_queue_hist(sim_path="simple_test")
