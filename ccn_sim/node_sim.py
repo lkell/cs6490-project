@@ -87,18 +87,43 @@ class Client(NetworkNode):
         self.retrieved_content: Union[None, Packet] = None
         self.env = env
         self.responses: list[Packet] = []
+        self.request_times: list[Tuple[str, int]] = []
+        self.response_times: list[Tuple[str, int]] = []
 
     def run(self, request_paths: list[str], request_delay: int = 1):
         for search in request_paths:
             uid = random.randrange(10000)
             request = Packet(uid=uid, search=search, sender_id=self.id, type="request")
-            print(f"Client sent out request for {search} at time {env.now}")
+            self.request_times.append((search, int(self.env.now)))
             self.router.update_queue(request)
             yield self.env.timeout(request_delay)
 
     def update_queue(self, packet: Packet) -> None:
-        print(f"Client received response for {packet.search} at time {self.env.now}")
+        self.response_times.append((packet.search, int(env.now)))
         self.responses.append(packet)
+
+    def write_request_times(self, sim_path: str) -> None:
+        path = f"output/{sim_path}"
+        if not os.path.exists(path):
+            os.mkdir(path)
+        filepath = f"{path}/{self.id}_requests.csv"
+        list_to_csv(self.request_times, filepath, header_row=["path", "time"])
+
+    def write_response_times(self, sim_path: str) -> None:
+        path = f"output/{sim_path}"
+        if not os.path.exists(path):
+            os.mkdir(path)
+        filepath = f"{path}/{self.id}_responses.csv"
+        list_to_csv(self.response_times, filepath, header_row=["path", "time"])
+
+
+def list_to_csv(x: list, path: str, header_row: Union[list[str], None]) -> None:
+    with open(path, "w") as f:
+        writer = csv.writer(f)
+        if header_row:
+            writer.writerow(header_row)
+        for row in x:
+            writer.writerow(row)
 
 
 class ContentCache:
@@ -238,11 +263,8 @@ class Router(NetworkNode):
         path = f"output/{sim_path}"
         if not os.path.exists(path):
             os.mkdir(path)
-        filepath = f"{path}/{self.id}.csv"
-        with open(filepath, "w") as f:
-            writer = csv.writer(f)
-            for row in self.queue_hist:
-                writer.writerow(row)
+        filepath = f"{path}/{self.id}_queue.csv"
+        list_to_csv(self.queue_hist, filepath, header_row=["time", "queue_size"])
 
 
 def build_simple_network(env: Environment, n_routers: int = 100):
@@ -304,3 +326,6 @@ print("Cleint received responses:", client.responses)
 assert len(client.responses) == 1
 for router in routers:
     router.write_queue_hist(sim_path="simple_test")
+
+client.write_request_times(sim_path="simple_test")
+client.write_response_times(sim_path="simple_test")
