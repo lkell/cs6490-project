@@ -99,7 +99,7 @@ class Client(NetworkNode):
             yield self.env.timeout(request_delay)
 
     def update_queue(self, packet: Packet) -> None:
-        self.response_times.append((packet.search, int(env.now)))
+        self.response_times.append((packet.search, int(self.env.now)))
         self.responses.append(packet)
 
     def write_request_times(self, sim_path: str) -> None:
@@ -115,6 +115,9 @@ class Client(NetworkNode):
             os.mkdir(path)
         filepath = f"{path}/{self.id}_responses.csv"
         list_to_csv(self.response_times, filepath, header_row=["path", "time"])
+
+    def __repr__(self) -> str:
+        return f"Client <{self.id}>"
 
 
 def list_to_csv(x: list, path: str, header_row: Union[list[str], None]) -> None:
@@ -132,6 +135,9 @@ class ContentCache:
         self.cache: typing.OrderedDict[str, int] = OrderedDict()
 
     def add(self, key: str, val: int):
+        if self.limit == 0:
+            return
+
         if key in self.cache.keys():
             # Pop to move key to the front of the ordered dict if it exists
             self.cache.pop(key)
@@ -156,10 +162,12 @@ class ContentCache:
 
 
 class Router(NetworkNode):
-    def __init__(self, env: Environment, id: str, data: Dict[str, int] = {}):
+    def __init__(
+        self, env: Environment, id: str, data: Dict[str, int] = {}, cache_size: int = 20
+    ):
         self.id = id
         self.neighbors: Union[None, Dict[str, NetworkNode]] = None
-        self.cache = ContentCache()
+        self.cache = ContentCache(cache_size)
         self.pit: Dict[str, Set[str]] = {}
         self.data: Dict[str, int] = data
         self.env = env
@@ -187,7 +195,10 @@ class Router(NetworkNode):
             self.process_response(packet)
 
     def add_neighbors(self, neighbors: Dict[str, NetworkNode]):
-        self.neighbors = neighbors
+        if self.neighbors is None:
+            self.neighbors = neighbors
+        else:
+            self.neighbors = self.neighbors | neighbors
 
     def process_request(self, request: Packet) -> None:
         # add the request packet and sender_id to PIT
@@ -208,7 +219,9 @@ class Router(NetworkNode):
             self.process_response(response)
 
         # if the node owns the data, return it
+        # print(self.id, request.search, self.data.keys())
         if request.search in self.data.keys():
+            # print(1)
             response = request.update_packet(
                 sender_id=self.id,
                 type="data",
@@ -266,6 +279,9 @@ class Router(NetworkNode):
         filepath = f"{path}/{self.id}_queue.csv"
         list_to_csv(self.queue_hist, filepath, header_row=["time", "queue_size"])
 
+    def __repr__(self) -> str:
+        return f"Router <{self.id}>"
+
 
 def build_simple_network(env: Environment, n_routers: int = 100):
     if n_routers < 2:
@@ -290,42 +306,3 @@ def build_simple_network(env: Environment, n_routers: int = 100):
     routers[0].add_neighbors({"c-0": client, "r-1": routers[1]})
 
     return client, routers
-
-
-# Simple test 1
-data = 1
-env = Environment()
-client, routers = build_simple_network(env, 2)
-routers[1].data = {"data/0": data}
-
-env.process(client.run(request_paths=["data/0", "data/0"], request_delay=5))
-for router in routers:
-    env.process(router.run())
-env.run(until=100)
-
-# We should see two response packets. The second one should have two hops due due to
-# content caching at router 0.
-print("Cleint received responses:", client.responses)
-assert len(client.responses) == 2
-assert client.responses[1].inverse_TTL == 2
-
-# Simple test 2
-data = 1
-env = Environment()
-client, routers = build_simple_network(env, 2)
-routers[1].data = {"data/0": data}
-
-env.process(client.run(request_paths=["data/0", "data/0"], request_delay=1))
-for router in routers:
-    env.process(router.run())
-env.run(until=100)
-
-# We should see only one response packet this time because the first router
-# is able to consolidate the return packets using its PIT
-print("Cleint received responses:", client.responses)
-assert len(client.responses) == 1
-for router in routers:
-    router.write_queue_hist(sim_path="simple_test")
-
-client.write_request_times(sim_path="simple_test")
-client.write_response_times(sim_path="simple_test")
