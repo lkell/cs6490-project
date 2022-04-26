@@ -31,25 +31,6 @@ class NetworkNode(Protocol):
         """Return the data reponse to the requesting node."""
 
 
-class Client(NetworkNode):
-    def __init__(self, id: str, router: Router):
-        self.id = id
-        self.router = router
-        self.retrieved_content: Union[None, Packet] = None
-
-    def build_packet_and_fetch_content(self, search: str):
-        # Build the packet
-        request = Packet(search)
-
-        self.fetch_content(request)
-
-    def fetch_content(self, request: Packet):
-        self.router.fetch_content(request, sender_id=self.id)
-
-    def return_content(self, response: Packet):
-        self.retrieved_content = response
-
-
 class ContentCache:
     def __init__(self, limit: int = 20):
         self.limit = limit
@@ -79,7 +60,7 @@ class ContentCache:
         self.cache = OrderedDict()
 
 
-class Router(NetworkNode):
+class Node(NetworkNode):
     def __init__(self, id: str, data: Dict[str, int] = {}):
         self.id = id
         self.neighbors: Union[None, Dict[str, NetworkNode]] = None
@@ -143,3 +124,8 @@ class Router(NetworkNode):
             self.neighbors[router].return_content(response)
 
         self.pit.pop(response.search)
+
+    def build_packet_and_fetch_content(self, search: str):
+        # Build the packet
+        request = Packet(search)
+        self.fetch_content(request, self.id)

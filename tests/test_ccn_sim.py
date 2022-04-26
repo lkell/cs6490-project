@@ -1,5 +1,5 @@
 from ccn_sim import __version__
-from ccn_sim.node import Client, ContentCache, Router
+from ccn_sim.node import ContentCache, Node
 
 
 def test_version():
@@ -7,7 +7,7 @@ def test_version():
 
 
 def test_simple_network():
-    # test a simple [Client <-> Router <-> Server (Router)] setup
+    # test a simple [Node <-> Node <-> Server (Node)] setup
 
     data = 123
 
@@ -26,8 +26,8 @@ def build_simple_network(n_routers: int = 100):
     if n_routers < 2:
         raise ValueError("n_routers must be at least 2")
 
-    routers = [Router(f"r-{i}") for i in range(n_routers - 1)]
-    routers.append(Router(f"r-{n_routers - 1}", {"data/0": -1}))
+    routers = [Node(f"r-{i}") for i in range(n_routers - 1)]
+    routers.append(Node(f"r-{n_routers - 1}", {"data/0": -1}))
     for i in range(1, n_routers - 1):
         prev_router = i - 1
         next_router = i + 1
@@ -41,14 +41,14 @@ def build_simple_network(n_routers: int = 100):
         {routers[n_routers - 2].id: routers[n_routers - 2]}
     )
 
-    client = Client("c-0", routers[0])
+    client = Node("c-0", routers[0])
     routers[0].add_neighbors({"c-0": client, "r-1": routers[1]})
 
     return client, routers
 
 
 def test_simple_network_long():
-    # test a simple network with chain of routers [Client <-> Routers <-> Server]
+    # test a simple network with chain of routers [Node <-> Nodes <-> Server]
 
     data = 123
 
