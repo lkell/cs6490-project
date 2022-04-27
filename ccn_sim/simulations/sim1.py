@@ -10,17 +10,17 @@ c-2 --> r-2 -->
 """
 from typing import Dict
 
-from ccn_sim.node_sim import Client, Router
+from ccn_sim.node_sim import Node
 from simpy.core import Environment
 
 
 def sim1():
     sim_path = "sim1"
     env = Environment()
-    nodes = _create_network(env, cache_size=1)
-    clients: list[Client] = nodes["clients"]
-    routers: list[Router] = nodes["routers"]
-    servers: list[Router] = nodes["servers"]
+    nodes = _create_network(env, cache_size=100)
+    clients = nodes["clients"]
+    routers = nodes["routers"]
+    servers = nodes["servers"]
 
     client_requests = ["data/0" for _ in range(1_000_000)]
     for client in clients:
@@ -40,16 +40,16 @@ def sim1():
         client.write_response_times(sim_path)
 
 
-def _create_network(env: Environment, cache_size: int) -> Dict:
+def _create_network(env: Environment, cache_size: int) -> Dict[str, list[Node]]:
 
     data = {"data/0": 0}
 
     # Define routers and server
-    r0 = Router(env, id="r-0", cache_size=cache_size)
-    r1 = Router(env, id="r-1", cache_size=cache_size)
-    r2 = Router(env, id="r-2", cache_size=cache_size)
-    r3 = Router(env, id="r-3", cache_size=cache_size)
-    s0 = Router(env, id="s-0", cache_size=cache_size, data=data)
+    r0 = Node(env, id="r-0", cache_size=cache_size)
+    r1 = Node(env, id="r-1", cache_size=cache_size)
+    r2 = Node(env, id="r-2", cache_size=cache_size)
+    r3 = Node(env, id="r-3", cache_size=cache_size)
+    s0 = Node(env, id="s-0", cache_size=cache_size, data=data)
 
     # Define network router edges
     r0.add_neighbors({"r-3": r3})
@@ -62,14 +62,19 @@ def _create_network(env: Environment, cache_size: int) -> Dict:
     s0.add_neighbors({"r-3": r3})
 
     # Define Clients and add routers
-    c0 = Client(env, id="c-0", router=r0)
+    c0 = Node(env, id="c-0", is_client=True)
+    c0.add_neighbors({"r-0": r0})
     r0.add_neighbors({"c-0": c0})
 
-    c1 = Client(env, id="c-1", router=r1)
+    c1 = Node(env, id="c-1", is_client=True)
+    c1.add_neighbors({"r-1": r1})
     r1.add_neighbors({"c-1": c1})
 
-    c2 = Client(env, id="c-2", router=r2)
+    c2 = Node(env, id="c-2", is_client=True)
+    c2.add_neighbors({"r-2": r2})
     r2.add_neighbors({"c-2": c2})
+
+    s0.init_routing_broadcast()
 
     return {"clients": [c0, c1, c2], "routers": [r0, r1, r2, r3], "servers": [s0]}
 

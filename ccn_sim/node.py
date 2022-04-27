@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import typing
 from collections import OrderedDict
-from typing import Dict, Protocol, Set, Union
+from typing import Dict, Set, Union
 
 import simpy
 
@@ -21,22 +21,15 @@ class Packet:
         self.inverse_TTL += 1
 
 
-class NetworkNode(Protocol):
-    """A networked object that can fetch and return data."""
-
-    def fetch_content(self, request: Packet, sender_id: str) -> None:
-        """Search for the data corresponding with the request packet."""
-
-    def return_content(self, response: Packet) -> None:
-        """Return the data reponse to the requesting node."""
-
-
 class ContentCache:
     def __init__(self, limit: int = 20):
         self.limit = limit
         self.cache: typing.OrderedDict[str, int] = OrderedDict()
 
     def add(self, key: str, val: int):
+        if self.limit == 0:
+            return
+
         if key in self.cache.keys():
             # Pop to move key to the front of the ordered dict if it exists
             self.cache.pop(key)
@@ -60,20 +53,22 @@ class ContentCache:
         self.cache = OrderedDict()
 
 
-class Node(NetworkNode):
-    def __init__(self, id: str, data: Dict[str, int] = {}):
+class Node:
+    def __init__(self, id: str, data: Dict[str, int] = {}, cache_size: int = 20):
         self.id = id
-        self.neighbors: Union[None, Dict[str, NetworkNode]] = None
-        self.cache = ContentCache()
+        self.neighbors: Union[None, Dict[str, Node]] = None
+        self.cache = ContentCache(cache_size)
         self.pit: Dict[str, Set[str]] = {}
         self.data: Dict[str, int] = data
 
-    def add_neighbors(self, neighbors: Dict[str, NetworkNode]):
+    def add_neighbors(self, neighbors: Dict[str, Node]):
         self.neighbors = neighbors
 
     def fetch_content(self, request: Packet, sender_id: str):
-        print(f"{self.id} is incrementing hops")
-        request.increment_hops()
+        # print(f"{self.id} is incrementing hops")
+
+        if sender_id != self.id:
+            request.increment_hops()
 
         # add the request packet and sender_id to PIT
         if request.search not in self.pit:
@@ -103,9 +98,8 @@ class Node(NetworkNode):
                 neighbor.fetch_content(request, self.id)
 
     def return_content(self, response: Packet):
-        print(f"{self.id} is incrementing hops")
-        print(self.neighbors)
-        response.increment_hops()
+        # print(f"{self.id} is incrementing hops")
+        # print(self.neighbors)
 
         # Add data to cache
         if response.response_data is None:
@@ -115,13 +109,20 @@ class Node(NetworkNode):
         # Find everyone that wants this info
         next_routers = self.pit[response.search]
 
+        # Increment the TTL if there is going to be another hop
+        if self.id not in next_routers:
+            response.increment_hops()
+
         # Check we have neighbors
         if self.neighbors is None:
             raise Exception("Router didn't have neighbors")
 
-        print("next routers", next_routers)
+        # print("next routers", next_routers)
         for router in next_routers:
-            self.neighbors[router].return_content(response)
+            if router == self.id:
+                self.retrieved_content = response
+            else:
+                self.neighbors[router].return_content(response)
 
         self.pit.pop(response.search)
 

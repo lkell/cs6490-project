@@ -41,7 +41,8 @@ def build_simple_network(n_routers: int = 100):
         {routers[n_routers - 2].id: routers[n_routers - 2]}
     )
 
-    client = Node("c-0", routers[0])
+    client = Node("c-0", cache_size=0)
+    client.add_neighbors({"r-0": routers[0]})
     routers[0].add_neighbors({"c-0": client, "r-1": routers[1]})
 
     return client, routers

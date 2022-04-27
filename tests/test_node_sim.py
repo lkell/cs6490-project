@@ -1,5 +1,5 @@
 from ccn_sim import __version__
-from ccn_sim.node_sim import Client, ContentCache, Router
+from ccn_sim.node_sim import ContentCache, Node
 from simpy.core import Environment
 
 
@@ -11,8 +11,8 @@ def build_simple_network(env: Environment, n_routers: int = 100):
     if n_routers < 2:
         raise ValueError("n_routers must be at least 2")
 
-    routers = [Router(env, f"r-{i}") for i in range(n_routers - 1)]
-    routers.append(Router(env, f"r-{n_routers - 1}", {"data/0": -1}))
+    routers = [Node(env, f"r-{i}") for i in range(n_routers - 1)]
+    routers.append(Node(env, f"r-{n_routers - 1}", {"data/0": -1}))
     for i in range(1, n_routers - 1):
         prev_router = i - 1
         next_router = i + 1
@@ -26,20 +26,43 @@ def build_simple_network(env: Environment, n_routers: int = 100):
         {routers[n_routers - 2].id: routers[n_routers - 2]}
     )
 
-    client = Client(env, "c-0", routers[0])
+    client = Node(env, "c-0", is_client=True)
+    client.add_neighbors({"r-0": routers[0]})
     routers[0].add_neighbors({"c-0": client, "r-1": routers[1]})
 
     return client, routers
 
 
+def test_broadcast():
+    env = Environment()
+
+    client, routers = build_simple_network(env, 100)
+    routers[99].data = {"data/0": 0, "data/1": 1}
+    routers[99].init_routing_broadcast()
+
+    for i in range(98, -1, -1):
+        expected_dist = 98 - i
+        expected_data = {
+            "data/0": (f"r-{i+1}", expected_dist),
+            "data/1": (f"r-{i+1}", expected_dist),
+        }
+        assert routers[i].FIB == expected_data
+
+    assert client.FIB == {
+        "data/0": ("r-0", 99),
+        "data/1": ("r-0", 99),
+    }
+
+
 def test_simple_network():
-    # test a simple [Client <-> Router <-> Server (Router)] setup
+    # test a simple [Node <-> Node <-> Server (Node)] setup
 
     data = 123
     env = Environment()
 
     client, routers = build_simple_network(env, 2)
     routers[1].data = {"data/0": data}
+    routers[1].init_routing_broadcast()
 
     env.process(client.run(request_paths=["data/0", "data/0"], request_delay=5))
     for router in routers:
@@ -56,6 +79,7 @@ def test_simple_network():
     env = Environment()
     client, routers = build_simple_network(env, 2)
     routers[1].data = {"data/0": data}
+    routers[1].init_routing_broadcast()
     env.process(client.run(request_paths=["data/0", "data/0"], request_delay=1))
     for router in routers:
         env.process(router.run())
@@ -67,7 +91,7 @@ def test_simple_network():
 
 
 def test_simple_network_long():
-    # test a simple network with chain of routers [Client <-> Routers <-> Server]
+    # test a simple network with chain of routers [Node <-> Nodes <-> Server]
 
     data = 123
     env = Environment()
@@ -77,6 +101,7 @@ def test_simple_network_long():
         routers,
     ) = build_simple_network(env, 100)
     routers[99].data = {"data/0": data}
+    routers[99].init_routing_broadcast()
 
     env.process(client.run(request_paths=["data/0", "data/0"], request_delay=1000))
     for router in routers:
@@ -103,6 +128,7 @@ def test_cache():
     # Add the data
     for i in range(21):
         routers[1].data[f"data/{i}"] = i
+    routers[1].init_routing_broadcast()
 
     # TODO: Convert the following commented-out code to work with async node_sim
 

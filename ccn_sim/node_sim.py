@@ -5,7 +5,8 @@ import os
 import sys
 import typing
 from collections import OrderedDict
-from typing import Dict, Final, Literal, Protocol, Set, Tuple, Union
+from multiprocessing.sharedctypes import Value
+from typing import Dict, Final, Literal, Set, Tuple, Union
 
 from simpy.core import Environment
 
@@ -73,53 +74,6 @@ class Packet:
             )
 
 
-class NetworkNode(Protocol):
-    """A networked object that can fetch and return data."""
-
-    def update_queue(self, packet: Packet) -> None:
-        """Used to forward packets."""
-
-
-class Client(NetworkNode):
-    def __init__(self, env: Environment, id: str, router: Router):
-        self.id = id
-        self.router = router
-        self.retrieved_content: Union[None, Packet] = None
-        self.env = env
-        self.responses: list[Packet] = []
-        self.request_times: list[Tuple[str, int]] = []
-        self.response_times: list[Tuple[str, int]] = []
-
-    def run(self, request_paths: list[str], request_delay: int = 1):
-        for search in request_paths:
-            uid = random.randrange(10000)
-            request = Packet(uid=uid, search=search, sender_id=self.id, type="request")
-            self.request_times.append((search, int(self.env.now)))
-            self.router.update_queue(request)
-            yield self.env.timeout(request_delay)
-
-    def update_queue(self, packet: Packet) -> None:
-        self.response_times.append((packet.search, int(self.env.now)))
-        self.responses.append(packet)
-
-    def write_request_times(self, sim_path: str) -> None:
-        path = f"output/{sim_path}"
-        if not os.path.exists(path):
-            os.mkdir(path)
-        filepath = f"{path}/{self.id}_requests.csv"
-        list_to_csv(self.request_times, filepath, header_row=["path", "time"])
-
-    def write_response_times(self, sim_path: str) -> None:
-        path = f"output/{sim_path}"
-        if not os.path.exists(path):
-            os.mkdir(path)
-        filepath = f"{path}/{self.id}_responses.csv"
-        list_to_csv(self.response_times, filepath, header_row=["path", "time"])
-
-    def __repr__(self) -> str:
-        return f"Client <{self.id}>"
-
-
 def list_to_csv(x: list, path: str, header_row: Union[list[str], None]) -> None:
     with open(path, "w") as f:
         writer = csv.writer(f)
@@ -161,30 +115,81 @@ class ContentCache:
         self.cache = OrderedDict()
 
 
-class Router(NetworkNode):
+class Node:
     def __init__(
-        self, env: Environment, id: str, data: Dict[str, int] = {}, cache_size: int = 20
+        self,
+        env: Environment,
+        id: str,
+        data: Dict[str, int] = {},
+        cache_size: int = 20,
+        is_client: bool = False,
     ):
         self.id = id
-        self.neighbors: Union[None, Dict[str, NetworkNode]] = None
+        self.neighbors: Union[None, Dict[str, Node]] = None
         self.cache = ContentCache(cache_size)
         self.pit: Dict[str, Set[str]] = {}
         self.data: Dict[str, int] = data
         self.env = env
         self.queue: list[Packet] = []
         self.queue_hist: list[Tuple[int, int]] = []
+        self.request_times: list[Tuple[str, int]] = []
+        self.response_times: list[Tuple[str, int]] = []
+        self.responses: list[Packet] = []
+        self.is_client = is_client
+        self.FIB: Dict[str, Tuple[str, int]] = {}
 
     def log(self, msg: str) -> None:
         print(f"[{self.id}]: {msg}")
 
-    def run(self):
-        while True:
-            self.queue_hist.append((int(self.env.now), len(self.queue)))
-            if len(self.queue) == 0:
-                yield self.env.timeout(1)
-            else:
-                yield self.env.timeout(1)
-                self.process_packet(self.queue.pop(0))
+    def init_routing_broadcast(self):
+        if self.neighbors is None:
+            raise ValueError("Neighbors must be initialiazed")
+
+        for path in self.data.keys():
+            for neighbor in self.neighbors.values():
+                neighbor.rebroadcast(self.id, path, distance=0)
+
+    def rebroadcast(self, router_id: str, path: str, distance: int):
+        if self.neighbors is None:
+            raise ValueError("Neighbors must be initialiazed")
+
+        # Update data entry with closest neighbor
+        if path not in self.FIB.keys():
+            self.FIB[path] = router_id, distance
+        else:
+            if distance < self.FIB[path][1]:
+                self.FIB[path] = router_id, distance
+        # pass it on to the next router
+        for neighbor_id in self.neighbors.keys():
+            if neighbor_id != router_id:
+                self.neighbors[neighbor_id].rebroadcast(self.id, path, distance + 1)
+
+    def run(
+        self,
+        request_paths: list[str] = [],
+        request_delay: int = 1,
+    ):
+        if self.neighbors is None:
+            raise ValueError("Neighbors is not set")
+
+        if self.is_client:
+            for search in request_paths:
+                uid = random.randrange(10000)
+                request = Packet(
+                    uid=uid, search=search, sender_id=self.id, type="request"
+                )
+                self.request_times.append((search, int(self.env.now)))
+                for neighbor in self.neighbors.values():
+                    neighbor.update_queue(request)
+                yield self.env.timeout(request_delay)
+        else:
+            while True:
+                self.queue_hist.append((int(self.env.now), len(self.queue)))
+                if len(self.queue) == 0:
+                    yield self.env.timeout(1)
+                else:
+                    self.process_packet(self.queue.pop(0))
+                    yield self.env.timeout(1)
 
     def process_packet(self, packet: Packet):
         if packet.type == "request":
@@ -194,7 +199,7 @@ class Router(NetworkNode):
             # self.log("Processing response packet " + str(packet))
             self.process_response(packet)
 
-    def add_neighbors(self, neighbors: Dict[str, NetworkNode]):
+    def add_neighbors(self, neighbors: Dict[str, Node]):
         if self.neighbors is None:
             self.neighbors = neighbors
         else:
@@ -217,6 +222,7 @@ class Router(NetworkNode):
                 increment_hops=True,
             )
             self.process_response(response)
+            return
 
         # if the node owns the data, return it
         # print(self.id, request.search, self.data.keys())
@@ -229,6 +235,7 @@ class Router(NetworkNode):
                 increment_hops=True,
             )
             self.process_response(response)
+            return
 
         # Check we have neighbors
         if self.neighbors is None:
@@ -236,12 +243,11 @@ class Router(NetworkNode):
 
         # Else see if our neighbors have it
         sender_id = request.sender_id
-        for neighbor_id, neighbor in self.neighbors.items():
-            if neighbor_id != sender_id:
-                new_request = request.update_packet(
-                    sender_id=self.id, type="request", increment_hops=True
-                )
-                neighbor.update_queue(new_request)
+        neighbor_id = self.FIB[request.search][0]
+        new_request = request.update_packet(
+            sender_id=self.id, type="request", increment_hops=True
+        )
+        self.neighbors[neighbor_id].update_queue(new_request)
 
     def process_response(self, response: Packet) -> None:
         # Add data to cache
@@ -270,6 +276,8 @@ class Router(NetworkNode):
         self.pit.pop(response.search)
 
     def update_queue(self, packet: Packet) -> None:
+        self.response_times.append((packet.search, int(self.env.now)))
+        self.responses.append(packet)
         self.queue.append(packet)
 
     def write_queue_hist(self, sim_path: str) -> None:
@@ -279,30 +287,19 @@ class Router(NetworkNode):
         filepath = f"{path}/{self.id}_queue.csv"
         list_to_csv(self.queue_hist, filepath, header_row=["time", "queue_size"])
 
+    def write_request_times(self, sim_path: str) -> None:
+        path = f"output/{sim_path}"
+        if not os.path.exists(path):
+            os.mkdir(path)
+        filepath = f"{path}/{self.id}_requests.csv"
+        list_to_csv(self.request_times, filepath, header_row=["path", "time"])
+
+    def write_response_times(self, sim_path: str) -> None:
+        path = f"output/{sim_path}"
+        if not os.path.exists(path):
+            os.mkdir(path)
+        filepath = f"{path}/{self.id}_responses.csv"
+        list_to_csv(self.response_times, filepath, header_row=["path", "time"])
+
     def __repr__(self) -> str:
-        return f"Router <{self.id}>"
-
-
-def build_simple_network(env: Environment, n_routers: int = 100):
-    if n_routers < 2:
-        raise ValueError("n_routers must be at least 2")
-
-    routers = [Router(env, f"r-{i}") for i in range(n_routers - 1)]
-    routers.append(Router(env, f"r-{n_routers - 1}", {"data/0": -1}))
-    for i in range(1, n_routers - 1):
-        prev_router = i - 1
-        next_router = i + 1
-        routers[i].add_neighbors(
-            {
-                routers[prev_router].id: routers[prev_router],
-                routers[next_router].id: routers[next_router],
-            }
-        )
-    routers[n_routers - 1].add_neighbors(
-        {routers[n_routers - 2].id: routers[n_routers - 2]}
-    )
-
-    client = Client(env, "c-0", routers[0])
-    routers[0].add_neighbors({"c-0": client, "r-1": routers[1]})
-
-    return client, routers
+        return f"Node <{self.id}>"
