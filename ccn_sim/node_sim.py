@@ -6,7 +6,7 @@ import sys
 import typing
 from collections import OrderedDict
 from multiprocessing.sharedctypes import Value
-from typing import Dict, Final, Literal, Set, Tuple, Union
+from typing import Dict, Final, Iterable, Literal, Set, Tuple, Union
 
 from simpy.core import Environment
 
@@ -168,7 +168,7 @@ class Node:
 
     def run(
         self,
-        request_paths: list[str] = [],
+        request_paths: Iterable[str] = [],
         request_delay: int = 1,
     ):
         if self.neighbors is None:
@@ -294,7 +294,7 @@ class Node:
     def write_request_times(self, sim_path: str) -> None:
         path = f"output/{sim_path}"
         if not os.path.exists(path):
-            os.mkdir(path)
+            os.makedirs(path)
         filepath = f"{path}/{self.id}_requests.csv"
         list_to_csv(self.request_times, filepath, header_row=["path", "time"])
 
