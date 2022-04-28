@@ -123,10 +123,10 @@ class Node:
         data: Dict[str, int] = {},
         cache_size: int = 20,
         is_client: bool = False,
+        simulate_ip: bool = False,
     ):
         self.id = id
         self.neighbors: Union[None, Dict[str, Node]] = None
-        self.cache = ContentCache(cache_size)
         self.pit: Dict[str, Set[str]] = {}
         self.data: Dict[str, int] = data
         self.env = env
@@ -137,6 +137,8 @@ class Node:
         self.responses: list[Packet] = []
         self.is_client = is_client
         self.FIB: Dict[str, Tuple[str, int]] = {}
+        self.simulate_ip = simulate_ip
+        self.cache = ContentCache(0) if self.simulate_ip else ContentCache(cache_size)
 
     def log(self, msg: str) -> None:
         print(f"[{self.id}]: {msg}")
@@ -188,8 +190,8 @@ class Node:
                 if len(self.queue) == 0:
                     yield self.env.timeout(1)
                 else:
-                    self.process_packet(self.queue.pop(0))
                     yield self.env.timeout(1)
+                    self.process_packet(self.queue.pop(0))
 
     def process_packet(self, packet: Packet):
         if packet.type == "request":
@@ -211,6 +213,8 @@ class Node:
             self.pit[request.search] = {request.sender_id}
         else:
             self.pit[request.search].add(request.sender_id)
+            if not self.simulate_ip:
+                return
 
         # if the data is in the cache, call return_content directly
         cache_result = self.cache.lookup(request.search)

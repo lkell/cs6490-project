@@ -13,7 +13,7 @@ Things to work on:
 - [X] Add mechanism to output network load [Leo]
     - [X] Router queue history
     - [X] Request packet turnaround time
-- [] Fix PIT implementation in the node_sim.py file
+- [x] Fix PIT implementation in the node_sim.py file
 - [] Reduce the neighbor dict complexity
 - [] Create some simple network topologies
 - [] Figure out how to DDOS our networks
