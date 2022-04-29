@@ -8,4 +8,4 @@ The project makes use of the [SimPy](https://simpy.readthedocs.io/en/latest/) di
 
 Use the following command to run the simulation: `python -m ccn_sim.simulations.star.simple_star_1`. This will run a series of simulations store recorded simulation results in the `output/` directory.
 
-After simulations have been run, the `visualization/visualize.py` script can be used to plot the generated outputs.
+After simulations have been run, the `visualization/visualize.py` script can be used with the command, `python visualization/visualize.py star_1_cache100`, to plot the generated outputs. You can vary the `cache100` value to one of `cache0`, `cache25`, `cache50`, `cache75`, `cache100`, or `ip`.
