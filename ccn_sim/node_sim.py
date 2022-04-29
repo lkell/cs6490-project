@@ -1,3 +1,5 @@
+"""This file contains simulated network entities that can be run as simpy processes."""
+
 from __future__ import annotations
 
 import csv
@@ -16,6 +18,8 @@ import random
 
 
 class Packet:
+    """Represents a CCN request or response packet."""
+
     def __init__(
         self,
         uid: int,
@@ -74,7 +78,8 @@ class Packet:
             )
 
 
-def list_to_csv(x: list, path: str, header_row: Union[list[str], None]) -> None:
+def _list_to_csv(x: list, path: str, header_row: Union[list[str], None]) -> None:
+    """Write each record in a list as row in the output CSV file."""
     with open(path, "w") as f:
         writer = csv.writer(f)
         if header_row:
@@ -84,11 +89,14 @@ def list_to_csv(x: list, path: str, header_row: Union[list[str], None]) -> None:
 
 
 class ContentCache:
+    """Represents the cache of content data available to CCN nodes."""
+
     def __init__(self, limit: int = 20):
         self.limit = limit
         self.cache: typing.OrderedDict[str, int] = OrderedDict()
 
     def add(self, key: str, val: int):
+        """Insert a new data element to the cache."""
         if self.limit == 0:
             return
 
@@ -102,6 +110,7 @@ class ContentCache:
         self.cache[key] = val
 
     def lookup(self, key: str) -> Union[int, None]:
+        """Return data from the cache that corresponds to the search path."""
         if key not in self.cache.keys():
             return None
         data = self.cache[key]
@@ -109,13 +118,17 @@ class ContentCache:
         return data
 
     def evict(self) -> None:
+        """Remove a data item from the cache."""
         self.cache.popitem(last=False)
 
     def flush(self):
+        """Remove all elements from the cache."""
         self.cache = OrderedDict()
 
 
 class Node:
+    """This is used to represent a CCN router, client, or server."""
+
     def __init__(
         self,
         env: Environment,
@@ -144,6 +157,7 @@ class Node:
         print(f"[{self.id}]: {msg}")
 
     def init_routing_broadcast(self):
+        """Let each neighbor know that this node contains particular data."""
         if self.neighbors is None:
             raise ValueError("Neighbors must be initialiazed")
 
@@ -152,6 +166,7 @@ class Node:
                 neighbor.rebroadcast(self.id, path, distance=0)
 
     def rebroadcast(self, router_id: str, path: str, distance: int):
+        """Update the FIB and rebroadcast routing information to neighboring nodes."""
         if self.neighbors is None:
             raise ValueError("Neighbors must be initialiazed")
 
@@ -171,10 +186,13 @@ class Node:
         request_paths: Iterable[str] = [],
         request_delay: int = 1,
     ):
+        """Simulate the behavior of a network node during the simpy simulation."""
+
         if self.neighbors is None:
             raise ValueError("Neighbors is not set")
 
         if self.is_client:
+            # Clients send out request packets at fixed intervals
             for search in request_paths:
                 uid = random.randrange(10000)
                 request = Packet(
@@ -185,29 +203,31 @@ class Node:
                     neighbor.update_queue(request)
                 yield self.env.timeout(request_delay)
         else:
+            # Routers and servers handle one incoming packet at each simulation time step
             while True:
                 self.queue_hist.append((int(self.env.now), len(self.queue)))
                 if len(self.queue) == 0:
-                    yield self.env.timeout(1)
+                    yield self.env.timeout(1)  # Do nothing if no pending requests
                 else:
                     yield self.env.timeout(1)
-                    self.process_packet(self.queue.pop(0))
+                    self.process_packet(self.queue.pop(0))  # Handle first packet
 
     def process_packet(self, packet: Packet):
         if packet.type == "request":
-            # self.log("Processing request packet " + str(packet))
             self.process_request(packet)
         else:
-            # self.log("Processing response packet " + str(packet))
             self.process_response(packet)
 
     def add_neighbors(self, neighbors: Dict[str, Node]):
+        """Set or update the node's immediate neighboring nodes."""
         if self.neighbors is None:
             self.neighbors = neighbors
         else:
             self.neighbors = self.neighbors | neighbors
 
     def process_request(self, request: Packet) -> None:
+        """Handle a CCN request packet."""
+
         # add the request packet and sender_id to PIT
         if request.search not in self.pit:
             self.pit[request.search] = {request.sender_id}
@@ -229,7 +249,6 @@ class Node:
             return
 
         # if the node owns the data, return it
-        # print(self.id, request.search, self.data.keys())
         if request.search in self.data.keys():
             # print(1)
             response = request.update_packet(
@@ -254,20 +273,23 @@ class Node:
         self.neighbors[neighbor_id].update_queue(new_request)
 
     def process_response(self, response: Packet) -> None:
+        """Handle a CCN response (data) packet."""
+
         # Add data to cache
         if response.response_data is None:
             raise Exception("Response data is None")
         self.cache.add(response.search, response.response_data)
 
-        # self.log("pit:" + str(self.pit))
         if response.search not in self.pit.keys():
             return
+
         next_routers = self.pit[response.search]
 
         # Check we have neighbors
         if self.neighbors is None:
             raise Exception("Router didn't have neighbors")
 
+        # Send data to all requesting neighbors
         for router in next_routers:
             new_response = response.update_packet(
                 sender_id=self.id,
@@ -277,33 +299,38 @@ class Node:
             )
             self.neighbors[router].update_queue(new_response)
 
+        # Remove handled content request from PIT
         self.pit.pop(response.search)
 
     def update_queue(self, packet: Packet) -> None:
+        """Add incoming packet to the node's packet queue."""
         self.response_times.append((packet.search, int(self.env.now)))
         self.responses.append(packet)
         self.queue.append(packet)
 
     def write_queue_hist(self, sim_path: str) -> None:
+        """Write the queue length history to CSV."""
         path = f"output/{sim_path}"
         if not os.path.exists(path):
             os.mkdir(path)
         filepath = f"{path}/{self.id}_queue.csv"
-        list_to_csv(self.queue_hist, filepath, header_row=["time", "queue_size"])
+        _list_to_csv(self.queue_hist, filepath, header_row=["time", "queue_size"])
 
     def write_request_times(self, sim_path: str) -> None:
+        """Write data request times to CSV."""
         path = f"output/{sim_path}"
         if not os.path.exists(path):
             os.makedirs(path)
         filepath = f"{path}/{self.id}_requests.csv"
-        list_to_csv(self.request_times, filepath, header_row=["path", "time"])
+        _list_to_csv(self.request_times, filepath, header_row=["path", "time"])
 
     def write_response_times(self, sim_path: str) -> None:
+        """Write data response times to CSV."""
         path = f"output/{sim_path}"
         if not os.path.exists(path):
             os.mkdir(path)
         filepath = f"{path}/{self.id}_responses.csv"
-        list_to_csv(self.response_times, filepath, header_row=["path", "time"])
+        _list_to_csv(self.response_times, filepath, header_row=["path", "time"])
 
     def __repr__(self) -> str:
         return f"Node <{self.id}>"

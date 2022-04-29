@@ -1,3 +1,5 @@
+"""This file contains a synchronous version of the simulated network entities."""
+
 from __future__ import annotations
 
 import sys
