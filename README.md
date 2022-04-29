@@ -1,8 +1,12 @@
 # CS6490 Project - CCN Simulation
 
-This repository contains code to run a CCN simulation and visalize the resulting network load during a DDoS attack.
+This repository contains code to run a CCN simulation and visualize the resulting network load during a DDoS attack.
 
 The project makes use of the [SimPy](https://simpy.readthedocs.io/en/latest/) discrete-event simulator to run the network simulation. [Plotnine](https://plotnine.readthedocs.io/en/stable/) is used to generate the plots.
+
+## Install dependencies
+
+Make sure you have python 3.9 and poetry install and then run `poetry install`. Then you can run `poetry shell` to get into the environment.
 
 ## Running the simulation
 
