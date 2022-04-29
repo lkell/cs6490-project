@@ -35,8 +35,9 @@ queues.level_0 = queues.level_0.apply(lambda x: x.split("_")[0])
 plots = []
 
 plots.append(ggplot(queues)
-  + aes(x="time", y="queue_size", color="level_0")
+  + aes(x="time", y="queue_size")
   + geom_line()
+  + facet_wrap('level_0')
   + labs(
     title="Queue Length Per Node",
     x="Time (Sim Seconds)",
@@ -44,4 +45,4 @@ plots.append(ggplot(queues)
     color="Node"
   ))
 
-save_as_pdf_pages(plots,f"{output_path}/test.pdf")
+save_as_pdf_pages(plots,f"{output_path}/{sim_name}_vis.pdf")

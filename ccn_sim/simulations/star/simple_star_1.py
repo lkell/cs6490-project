@@ -29,7 +29,7 @@ def simple_star_1():
 
     # Run CCN simulations
     for cache_size in cache_sizes:
-        sim_path = f"star/1/cache{cache_size}"
+        sim_path = f"star_1_cache{cache_size}"
         env = Environment()
 
         network = build_star_network(
@@ -51,7 +51,7 @@ def simple_star_1():
         )
 
     # Run simulation with 'IP' mode set
-    sim_path = "star/1/ip-mode"
+    sim_path = "star_1_ip"
     env = Environment()
 
     network = build_star_network(
