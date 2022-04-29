@@ -1,19 +1,14 @@
-import random
-from typing import Dict
-
 """
 Create a star network topology like this:
 
 https://blog.boson.com/hs-fs/hub/70217/file-27052587-png/images/9_-_extended_star_topology.png
 
+Run a DDoS scenario simulation and save the recorded experiment observations to file.
+
 """
 
 
-from ccn_sim.simulations.util import (
-    create_data,
-    randomized_data_requests,
-    run_experiment,
-)
+from ccn_sim.simulations.util import create_data, run_experiment
 from requests import request
 from simpy.core import Environment
 
@@ -21,9 +16,11 @@ from .build_network import build_star_network
 
 
 def simple_star_1():
-    run_until = 20_000
-    request_delay = 3
-    data = create_data(n=100)
+    """Run a simulation using star network topology for various node cache sizes."""
+
+    run_until = 20_000  # the simulation will run for 20_000 time steps
+    request_delay = 3  # Clients send a request packet every three time steps
+    data = create_data(n=100)  # There are 100 unique CCN data objects
 
     cache_sizes = [0, 25, 50, 75, 100]
 

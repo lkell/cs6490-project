@@ -1,5 +1,5 @@
 """
-Run a simulation with the following network architecture:
+Run a basic simulation with the following network architecture:
 
 c-0 --> r-0 -->
              | 
