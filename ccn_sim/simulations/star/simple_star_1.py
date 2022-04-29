@@ -9,7 +9,6 @@ Run a DDoS scenario simulation and save the recorded experiment observations to 
 
 
 from ccn_sim.simulations.util import create_data, run_experiment
-from requests import request
 from simpy.core import Environment
 
 from .build_network import build_star_network

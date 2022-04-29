@@ -8,7 +8,6 @@ authors = ["Leo Kell", "Jack Wilburn"]
 python = "^3.9"
 simpy = "^4.0.1"
 plotnine = "^0.8.0"
-requests = "^2.27.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.0"
